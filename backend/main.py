@@ -49,7 +49,8 @@ async def analyze(
     image: Optional[UploadFile] = File(None),
     audio: Optional[UploadFile] = File(None),
     location: Optional[str] = Form(None), # Expected format: "lat,long" or "City, Area"
-    language_code: str = Form("en") # e.g., 'hi', 'en', 'te'
+    language_code: str = Form("en"), # e.g., 'hi', 'en', 'te'
+    history: Optional[str] = Form(None) # JSON string of previous conversation
 ):
     """
     Multimodal analysis endpoint.
@@ -64,17 +65,33 @@ async def analyze(
 
         inputs = []
         
+        # Parse History
+        conversation_context = ""
+        if history:
+            try:
+                # Expecting history as a list of {"role": "user"/"model", "content": "..."}
+                history_list = json.loads(history)
+                conversation_context = "PREVIOUS CONVERSATION HISTORY:\n"
+                for msg in history_list:
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")
+                    conversation_context += f"- {role.upper()}: {content}\n"
+            except Exception as e:
+                logger.warning(f"Failed to parse history: {e}")
+
         # 1. System Prompt / Context Construction
         base_prompt = """
         You are LocalMind AI, a hyperlocal assistant for India.
-        Your goal is to provide real-time, actionable intelligence based on the user's location and input.
+        Your goal is to provide real-time, actionable intelligence based on the user's location, visual input, and conversation history.
         
         CONTEXT:
         - Location: {location}
         - User's Language Preference: {language_code}
         
+        {conversation_context}
+        
         INSTRUCTIONS:
-        1. Analyze the input (image, audio, text).
+        1. Analyze the input (image, audio, text) combined with the Conversation History.
         2. Identify specific local details (shops, signs, food, transport, safety).
         3. If the user asks for a price, give a realistic estimate based on general knowledge.
         4. **CRITICAL**: Return your response in strict JSON format.
@@ -100,6 +117,7 @@ async def analyze(
         formatted_prompt = base_prompt.format(
             location=location or "Unknown India Location",
             language_code=language_code,
+            conversation_context=conversation_context,
             user_text=text or "Analyze my input."
         )
         
